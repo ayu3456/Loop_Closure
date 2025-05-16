@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Python
 __pycache__/
 *.py[cod]
@@ -43,36 +42,8 @@ images/
 output/
 *.jpg
 *.png
-*.jpeg 
-=======
-# Python virtual environment
-venv/
-env/
-.env/
-.venv/
-
-# Python cache files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-
-# IDE settings
-.vscode/
-.idea/
-
-# Logs
-*.log
-
-# Local development settings
-.env
-.env.local
+*.jpeg
 
 # Large data files
 data/*.tgz
 data/*.zip
->>>>>>> a95bb337791ce26bcc5705805094b3c6b62a4344
