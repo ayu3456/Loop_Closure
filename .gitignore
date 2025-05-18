@@ -38,11 +38,6 @@ ENV/
 .DS_Store
 
 # Project specific
-images/
-output/
-*.jpg
-*.png
-*.jpeg
 
 # Large data files
 data/*.tgz
