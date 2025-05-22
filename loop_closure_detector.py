@@ -7,35 +7,130 @@ from scipy.spatial.distance import cdist
 import urllib.request
 import zipfile
 from io import BytesIO
+import plotly.graph_objects as go
+import plotly.express as px
 
 class LoopClosureDetector:
-    def __init__(self, image_dir="images/loop"):
+    def __init__(self, video_dir="input_videos", output_dir="output"):
         """Initialize the Loop Closure Detector"""
-        self.image_dir = image_dir
-        self.output_dir = "output"
+        self.video_dir = video_dir
+        self.output_dir = output_dir
+        self.image_dir = output_dir  # Add back image_dir for visualization
         
         # Create necessary directories
-        os.makedirs(self.image_dir, exist_ok=True)
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Initialize SIFT detector
-        self.sift = cv2.SIFT_create(nfeatures=1000)
+        # Initialize SIFT detector with fewer features
+        self.sift = cv2.SIFT_create(nfeatures=500)  # Reduced from 1000
         
-        # Initialize FLANN matcher
+        # Initialize FLANN matcher with fewer trees
         FLANN_INDEX_KDTREE = 1
-        index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-        search_params = dict(checks=50)
+        index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=3)  # Reduced from 5
+        search_params = dict(checks=30)  # Reduced from 50
         self.matcher = cv2.FlannBasedMatcher(index_params, search_params)
         
         # Parameters for loop closure
-        self.similarity_threshold = 0.05  # Very lenient similarity threshold
-        self.min_inlier_ratio = 0.1      # Very lenient inlier ratio
-        self.min_matches = 5             # Very few required matches
+        self.similarity_threshold = 0.4  # Increased threshold
+        self.min_inlier_ratio = 0.15     # Increased slightly
+        self.min_matches = 5             # Kept the same
         
         # Storage for frame data
         self.frames = []
         self.descriptors = []
         self.similarity_matrix = None
+        self.frame_times = []  # Store timestamps for 3D trajectory
+        self.frame_positions = []  # Store estimated positions for 3D trajectory
+
+    def load_frames_from_directory(self, frames_dir):
+        """Load frames from a directory containing frame_*.jpg files"""
+        try:
+            print(f"\nLoading frames from directory: {frames_dir}")
+            
+            # Get list of frame files
+            frame_files = sorted([f for f in os.listdir(frames_dir) if f.startswith('frame_') and f.endswith('.jpg')])
+            
+            # Process every 10th frame
+            step = 10
+            frame_count = 0
+            for i, frame_file in enumerate(frame_files):
+                if i % step != 0:
+                    continue
+                
+                frame_path = os.path.join(frames_dir, frame_file)
+                frame = cv2.imread(frame_path)
+                if frame is not None:
+                    keypoints, descriptors = self.detect_and_compute(frame)
+                    self.frames.append((frame, keypoints))
+                    self.descriptors.append(descriptors)
+                    # Calculate timestamp based on frame number (assuming 30 FPS)
+                    frame_num = int(frame_file.split('_')[1].split('.')[0])
+                    self.frame_times.append(frame_num / 30.0)
+                    frame_count += 1
+            
+            print(f"\nTotal frames loaded: {frame_count}")
+            print(f"(Processed every {step}th frame)")
+            return frame_count
+            
+        except Exception as e:
+            print(f"Error loading frames: {e}")
+            return 0
+
+    def create_3d_trajectory(self, loop_closures, output_path=None):
+        """Create 3D trajectory visualization using Plotly"""
+        # Create a 3D scatter plot
+        fig = go.Figure()
+        
+        # Add trajectory points
+        x = np.array(self.frame_times)  # Use time as X axis
+        y = np.zeros(len(self.frames))  # Y axis (could be used for position)
+        z = np.zeros(len(self.frames))  # Z axis (could be used for position)
+        
+        # Add trajectory line
+        fig.add_trace(go.Scatter3d(
+            x=x,
+            y=y,
+            z=z,
+            mode='lines+markers',
+            marker=dict(size=4, color='blue'),
+            line=dict(color='blue', width=2),
+            name='Trajectory'
+        ))
+        
+        # Add loop closure connections
+        for i, j, _ in loop_closures:
+            fig.add_trace(go.Scatter3d(
+                x=[x[i], x[j]],
+                y=[y[i], y[j]],
+                z=[z[i], z[j]],
+                mode='lines',
+                line=dict(color='red', width=2),
+                name=f'Loop {i}-{j}'
+            ))
+        
+        # Update layout
+        fig.update_layout(
+            title='3D Trajectory with Loop Closures',
+            scene=dict(
+                xaxis_title='Time (seconds)',
+                yaxis_title='Position Y',
+                zaxis_title='Position Z'
+            ),
+            showlegend=True
+        )
+        
+        # Save the plot
+        if output_path is None:
+            output_path = os.path.join(self.output_dir, '3d_trajectory.html')
+        
+        fig.write_html(output_path)
+        print(f"\nSaved 3D trajectory visualization to: {output_path}")
+        
+        # Show the plot
+        try:
+            fig.show()
+        except Exception as e:
+            print(f"Warning: Could not display plot: {e}")
+            print("The visualization has been saved to disk. You can open it manually.")
 
     def create_distinctive_pattern(self, img, center, color):
         """Create a distinctive pattern at the given center"""
@@ -109,40 +204,71 @@ class LoopClosureDetector:
                 
         print("Generated test sequence with loop closure")
 
-    def detect_and_compute(self, image):
-        """Detect keypoints and compute descriptors using SIFT"""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        keypoints, descriptors = self.sift.detectAndCompute(gray, None)
-        return keypoints, descriptors
-
-    def match_features(self, desc1, desc2):
-        """Match features using FLANN matcher and apply Lowe's ratio test"""
-        if desc1 is None or desc2 is None or len(desc1) < 2 or len(desc2) < 2:
-            return []
+    def detect_and_compute(self, img):
+        """Detect keypoints and compute descriptors"""
+        # Convert to grayscale if needed
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
         
-        try:
-            matches = self.matcher.knnMatch(desc1, desc2, k=2)
-            good_matches = []
-            
-            for match_pair in matches:
-                if len(match_pair) == 2:
-                    m, n = match_pair
-                    if m.distance < 0.8 * n.distance:  # More lenient ratio test
-                        good_matches.append(m)
-            
-            return good_matches
-        except Exception as e:
-            print(f"Error in feature matching: {e}")
-            return []
+        # Detect keypoints and compute descriptors
+        keypoints, descriptors = self.sift.detectAndCompute(gray, None)
+        
+        # Filter keypoints to reduce number
+        if len(keypoints) > 100:  # Keep only top 100 strongest keypoints
+            keypoints = sorted(keypoints, key=lambda x: x.response, reverse=True)[:100]
+            descriptors = np.array([desc for kp, desc in zip(keypoints, descriptors)])
+        
+        return keypoints, descriptors
+    
+    def calculate_similarity(self, i, j):
+        """Calculate similarity between two frames using feature matching"""
+        if i == j:
+            return 1.0  # Perfect similarity for same frame
+        
+        # Get descriptors
+        desc1 = self.descriptors[i]
+        desc2 = self.descriptors[j]
+        
+        if desc1 is None or desc2 is None:
+            return 0.0
+        
+        # Match features
+        matches = self.matcher.knnMatch(desc1, desc2, k=2)
+        
+        # Apply ratio test
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.7 * n.distance:
+                good_matches.append(m)
+        
+        # Calculate similarity score
+        num_matches = len(good_matches)
+        if num_matches < self.min_matches:
+            return 0.0
+        
+        # Calculate inlier ratio
+        if len(matches) > 0:
+            inlier_ratio = num_matches / len(matches)
+        else:
+            inlier_ratio = 0.0
+        
+        # Return similarity score
+        return inlier_ratio
 
     def compute_similarity_score(self, matches, num_features1, num_features2):
         """Compute similarity score between two frames based on matches"""
         if not matches or num_features1 == 0 or num_features2 == 0:
             return 0.0
         
-        # Normalize by the average number of features
-        avg_features = (num_features1 + num_features2) / 2
-        similarity = len(matches) / avg_features
+        # Use a more robust similarity metric
+        # Consider both the number of matches and their quality
+        match_ratio = len(matches) / min(num_features1, num_features2)
+        quality_score = np.mean([m.distance for m in matches]) if matches else 1.0
+        
+        # Combine both factors
+        similarity = match_ratio * (1.0 / (1.0 + quality_score))
         
         return similarity
 
@@ -150,171 +276,129 @@ class LoopClosureDetector:
         """Visualize loop closure between two frames"""
         frame1_path = os.path.join(self.image_dir, f"frame_{frame_idx1+1:03d}.jpg")
         frame2_path = os.path.join(self.image_dir, f"frame_{frame_idx2+1:03d}.jpg")
-        
-        frame1 = cv2.imread(frame1_path)
-        frame2 = cv2.imread(frame2_path)
-        
-        if frame1 is None or frame2 is None:
-            print(f"Error: Could not load frames for visualization")
-            return
-        
-        # Draw matches
-        try:
-            matched_img = cv2.drawMatches(
-                frame1, self.frames[frame_idx1]['keypoints'],
-                frame2, self.frames[frame_idx2]['keypoints'],
-                matches, None,
-                matchColor=(0, 255, 0),  # Green color for inliers
-                singlePointColor=(255, 0, 0),  # Red color for outliers
-                matchesMask=mask.ravel().tolist(),
-                flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-            )
+                            
+                            # Get inlier ratio
+                            inlier_ratio = np.sum(mask) / len(matches)
+                            
+                            if inlier_ratio > self.min_inlier_ratio:
+                                # Visualize loop closure
+                                try:
+                                    self.visualize_loop_closure(i, j, matches, mask)
+                                except Exception as e:
+                                    print(f"Error in visualization: {e}")
+                                
+                                # Add to loop closures
+                                loop_closures.append((i, j, self.similarity_matrix[i, j]))
+                                print(f"Found loop closure between frames {i+1} and {j+1}")
+                                
+                                if len(loop_closures) >= 5:  # Limit to 5 loop closures for visualization
+                continue
             
-            # Save visualization
-            output_path = os.path.join(self.output_dir, f"loop_closure_{frame_idx1+1:03d}_{frame_idx2+1:03d}.jpg")
-            cv2.imwrite(output_path, matched_img)
-            print(f"Saved visualization to: {output_path}")
-            
-            # Display
-            cv2.imshow('Loop Closure Detection', matched_img)
-            cv2.waitKey(1000)  # Display for 1 second
-        except Exception as e:
-            print(f"Error in visualization: {e}")
-            
+            # Calculate similarity
+            similarity = self.calculate_similarity(i, j)
+            self.similarity_matrix[i, j] = similarity
+            self.similarity_matrix[j, i] = similarity
+    
     def detect_loop_closures(self):
-        """Detect loop closures in the sequence"""
+        """Detect loop closures between frames"""
+        if len(self.frames) < 2:
+            return []
+        
+        print("\nComputing similarity matrix...")
+        
+        # Create similarity matrix
         n = len(self.frames)
         self.similarity_matrix = np.zeros((n, n))
         
-        # Parameters for loop closure
-        self.similarity_threshold = 0.1  # Adjusted threshold
-        self.min_inlier_ratio = 0.3     # Adjusted ratio
-        self.min_matches = 8            # Adjusted minimum matches
-        
-        # Compute similarity matrix
-        print("\nComputing similarity matrix...")
+        # Compare each pair of frames
         for i in range(n):
             for j in range(i + 1, n):
-                # Skip consecutive frames
-                if j - i <= 2:
+                if i == j:
                     continue
-                    
-                matches = self.match_features(self.descriptors[i], self.descriptors[j])
-                similarity = self.compute_similarity_score(
-                    matches,
-                    len(self.frames[i]['keypoints']),
-                    len(self.frames[j]['keypoints'])
-                )
                 
+                # Calculate similarity
+                similarity = self.calculate_similarity(i, j)
                 self.similarity_matrix[i, j] = similarity
                 self.similarity_matrix[j, i] = similarity
-                
-                if similarity > self.similarity_threshold:
-                    print(f"High similarity between frames {i+1} and {j+1}: {similarity:.3f}")
         
         # Find loop closures
-        print("\nSearching for loop closures...")
         loop_closures = []
         for i in range(n):
-            for j in range(i + 3, n):  # Skip immediate neighbors
-                if self.similarity_matrix[i, j] > self.similarity_threshold:
-                    # Verify loop closure with geometric check
-                    matches = self.match_features(self.descriptors[i], self.descriptors[j])
-                    if len(matches) > self.min_matches:
-                        try:
-                            # Get matched keypoints
-                            src_pts = np.float32([self.frames[i]['keypoints'][m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-                            dst_pts = np.float32([self.frames[j]['keypoints'][m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
-                            
-                            # Find homography matrix and get inliers mask
-                            H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-                            
-                            if H is not None:
-                                inlier_ratio = np.sum(mask) / len(mask)
-                                if inlier_ratio > self.min_inlier_ratio:
-                                    loop_closures.append((i, j, self.similarity_matrix[i, j]))
-                                    print(f"\nLoop closure detected between frames {i+1} and {j+1}")
-                                    print(f"Similarity score: {self.similarity_matrix[i, j]:.3f}")
-                                    print(f"Inlier ratio: {inlier_ratio:.3f}")
-                                    print(f"Number of matches: {len(matches)}")
-                                    
-                                    # Visualize loop closure
-                                    self.visualize_loop_closure(i, j, matches, mask)
-                        except Exception as e:
-                            print(f"Error in geometric verification: {e}")
-        
-        # Visualize similarity matrix
-        self.plot_similarity_matrix()
+            for j in range(i + 1, n):
+                similarity = self.similarity_matrix[i, j]
+                if similarity >= self.similarity_threshold:
+                    loop_closures.append((i, j, similarity))
         
         return loop_closures
 
-    def plot_similarity_matrix(self):
-        """Plot the similarity matrix"""
-        plt.figure(figsize=(10, 10))
-        plt.imshow(self.similarity_matrix, cmap='hot', interpolation='nearest')
-        plt.colorbar()
-        plt.title('Frame Similarity Matrix')
-        plt.xlabel('Frame Index')
-        plt.ylabel('Frame Index')
-        
-        # Save plot
-        plt.savefig(os.path.join(self.output_dir, 'similarity_matrix.png'))
-        plt.close()
-
-    def process_sequence(self):
-        """Process the entire sequence of images and detect loop closures"""
-        # Get list of images
-        image_files = sorted([f for f in os.listdir(self.image_dir) 
-                            if f.endswith(('.jpg', '.png', '.jpeg'))])
-        
-        # Process all frames
-        print("Processing frames...")
-        for i, image_file in enumerate(image_files):
-            frame_path = os.path.join(self.image_dir, image_file)
-            frame = cv2.imread(frame_path)
-            
-            if frame is None:
-                print(f"Error: Could not load frame {i}")
-                continue
-            
-            # Detect features
-            keypoints, descriptors = self.detect_and_compute(frame)
-            
-            if descriptors is None:
-                print(f"No features detected in frame {i}")
-                continue
-            
-            # Store frame data
-            self.frames.append({
-                'keypoints': keypoints,
-                'path': frame_path
-            })
-            self.descriptors.append(descriptors)
-            
-            print(f"Processed frame {i+1}/{len(image_files)}")
-        
-        # Detect loop closures
-        print("\nDetecting loop closures...")
-        loop_closures = self.detect_loop_closures()
-        
-        cv2.destroyAllWindows()
-        
-        return loop_closures
-
-def main():
-    """Main function to run the loop closure detection"""
-    detector = LoopClosureDetector()
+    # Find loop closures
+    loop_closures = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            similarity = self.similarity_matrix[i, j]
+            if similarity >= self.similarity_threshold:
+                loop_closures.append((i, j, similarity))
     
-    # Download sample images if they don't exist
-    detector.download_sample_images()
+    # Perform geometric verification
+    verified_loop_closures = []
+    num_frames = detector.load_frames_from_directory(frames_dir)
+    if num_frames == 0:
+        print(f"Warning: Could not load any frames from {frames_dir}")
+        return
     
-    # Process the sequence and detect loop closures
-    loop_closures = detector.process_sequence()
+    # Detect loop closures
+    loop_closures = detector.detect_loop_closures()
+    
+    # Create 3D trajectory visualization with a unique filename
+    output_path = os.path.join(detector.output_dir, f'3d_trajectory_{video_file}.html')
+    
+    # Create 3D trajectory visualization
+    detector.create_3d_trajectory(loop_closures, output_path)
     
     print("\nLoop Closure Detection Summary:")
     print(f"Total loop closures found: {len(loop_closures)}")
     for i, j, similarity in loop_closures:
         print(f"Loop closure between frames {i+1} and {j+1} (similarity: {similarity:.3f})")
+    
+    # Clear frames for next video
+    detector.frames = []
+    detector.descriptors = []
+    detector.similarity_matrix = None
+    detector.frame_times = []
+    detector.frame_positions = []
+    
+    print(f"\nFound {len(video_files)} videos to process:")
+    for video_file in video_files:
+        print(f"Processing video: {video_file}")
+        video_path = os.path.join(detector.video_dir, video_file)
+        
+        # Get full path to video
+        if not os.path.isabs(video_path):
+            video_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), video_file)
+        
+        # Extract frames from video
+        num_frames = detector.extract_frames_from_video(video_path)
+        if num_frames == 0:
+            print(f"Warning: Could not extract any frames from {video_path}")
+            continue
+        
+        # Detect loop closures
+        loop_closures = detector.detect_loop_closures()
+        
+        # Create 3D trajectory visualization
+        detector.create_3d_trajectory(loop_closures)
+        
+        print("\nLoop Closure Detection Summary:")
+        print(f"Total loop closures found: {len(loop_closures)}")
+        for i, j, similarity in loop_closures:
+            print(f"Loop closure between frames {i+1} and {j+1} (similarity: {similarity:.3f})")
+        
+        # Clear frames for next video
+        detector.frames = []
+        detector.descriptors = []
+        detector.similarity_matrix = None
+        detector.frame_times = []
+        detector.frame_positions = []
 
 if __name__ == "__main__":
     main() 
