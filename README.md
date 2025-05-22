@@ -9,7 +9,8 @@ A Python implementation of ORB-SLAM3 with real-time visualization. This project 
 - Scale-consistent motion estimation
 - Real-time 3D trajectory visualization
 - Support for video files and image sequences
-- Camera pose estimation with essential matrix decomposition
+- Camera pose estimation with essential matrix 
+decomposition
 - Interactive 3D visualization with camera frustum
 
 ## Project Structure
@@ -93,6 +94,8 @@ The system provides two visualization windows:
    - Red dot: Current camera position
    - Green frustum: Camera orientation
    - Interactive 3D view (rotate, zoom)
+  
+<img width="1280" alt="Screenshot 2025-05-20 at 8 13 28 PM" src="https://github.com/user-attachments/assets/0f15a04e-cbfe-4306-bd3c-f7d6d189e36c" />
 
 ## Dependencies
 
