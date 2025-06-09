@@ -3,6 +3,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 import cv2
 import os
+import joblib
 from loop_closure_detector import LoopClosureDetector
 
 class RandomForestLoopClosureDetector(LoopClosureDetector):
@@ -15,6 +16,17 @@ class RandomForestLoopClosureDetector(LoopClosureDetector):
         )
         self.scaler = StandardScaler()
         self.frames = []
+        self.model_filename = "rf_loop_closure_model.joblib"
+        self.scaler_filename = "rf_scaler.joblib"
+
+        # Load pre-trained model and scaler if they exist
+        if os.path.exists(self.model_filename) and os.path.exists(self.scaler_filename):
+            print(f"Loading pre-trained model from {self.model_filename}")
+            self.rf_classifier = joblib.load(self.model_filename)
+            print(f"Loading scaler from {self.scaler_filename}")
+            self.scaler = joblib.load(self.scaler_filename)
+        else:
+            print("No pre-trained model/scaler found. Will train from scratch if needed.")
         
     def process_frames(self):
         """Process all frames and store their keypoints and descriptors"""
@@ -67,8 +79,15 @@ class RandomForestLoopClosureDetector(LoopClosureDetector):
     
     def train_random_forest(self, training_data, labels):
         """Train the random forest classifier"""
+        # Fit the scaler with the training data and transform it
         X = self.scaler.fit_transform(training_data)
+        print(f"Saving scaler to {self.scaler_filename}")
+        joblib.dump(self.scaler, self.scaler_filename)
+
+        # Train the Random Forest classifier
         self.rf_classifier.fit(X, labels)
+        print(f"Saving trained RF model to {self.model_filename}")
+        joblib.dump(self.rf_classifier, self.model_filename)
     
     def detect_loop_closures_with_rf(self):
         """Detect loop closures using random forest classification"""

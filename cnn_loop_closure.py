@@ -4,6 +4,7 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
+import joblib
 import cv2
 import os
 from random_forest_loop_closure import RandomForestLoopClosureDetector
@@ -31,6 +32,19 @@ class CNNLoopClosureDetector(RandomForestLoopClosureDetector):
         if torch.cuda.is_available():
             self.cnn = self.cnn.cuda()
         self.cnn.eval()
+
+        # Override model and scaler filenames for CNN-specific versions
+        self.model_filename = "cnn_rf_loop_closure_model.joblib"
+        self.scaler_filename = "cnn_rf_scaler.joblib"
+
+        # Reload model and scaler if specific CNN versions exist, otherwise it will use RF ones or train anew
+        if os.path.exists(self.model_filename) and os.path.exists(self.scaler_filename):
+            print(f"Loading pre-trained CNN-RF model from {self.model_filename}")
+            self.rf_classifier = joblib.load(self.model_filename)
+            print(f"Loading CNN-RF scaler from {self.scaler_filename}")
+            self.scaler = joblib.load(self.scaler_filename)
+        else:
+            print(f"No pre-trained CNN-specific model/scaler found at {self.model_filename} / {self.scaler_filename}. Ensure they are generated or training will occur.")
         
         # Image preprocessing for CNN
         self.transform = transforms.Compose([
@@ -64,9 +78,20 @@ class CNNLoopClosureDetector(RandomForestLoopClosureDetector):
         
     def process_frames(self):
         """Process all frames and store their features"""
-        image_files = sorted([f for f in os.listdir(self.image_dir) if f.endswith('.jpg')])
+        # Clear previous frame data for this new processing batch
+        self.frames = []
+        self.sift_keypoints = []
+        self.sift_descriptors = []
+        self.cnn_features_list = [] # Assuming cnn_features are stored per frame in a list
+        self.frame_times = []
+
+        image_files = sorted([f for f in os.listdir(self.image_dir) if f.endswith(('.jpg', '.jpeg', '.png'))])
         
-        print("\nProcessing frames...")
+        if not image_files:
+            print(f"No image files (.jpg, .jpeg, .png) found in {self.image_dir}")
+            return
+            
+        print(f"\nProcessing {len(image_files)} frames from {self.image_dir}...")
         for i, image_file in enumerate(image_files, 1):
             image_path = os.path.join(self.image_dir, image_file)
             image = cv2.imread(image_path)
@@ -81,12 +106,33 @@ class CNNLoopClosureDetector(RandomForestLoopClosureDetector):
             cnn_features = self.extract_cnn_features(image)
             
             self.frames.append({
-                'image': image,
+                'id': image_file, # Store filename as ID
+                'image': image, # Consider not storing full image if memory is an issue
                 'keypoints': keypoints,
                 'descriptors': descriptors,
                 'cnn_features': cnn_features
             })
-            print(f"Processed frame {i}/{len(image_files)}")
+            self.sift_keypoints.append(keypoints)
+            self.sift_descriptors.append(descriptors)
+            self.cnn_features_list.append(cnn_features) # Store CNN features in the list
+
+            # Populate frame_times, assuming filename format like 'prefix_NUMBER.ext'
+            try:
+                # Extracts the last number sequence before the extension
+                frame_num_str = ''.join(filter(str.isdigit, image_file.split('_')[-1].split('.')[0]))
+                if frame_num_str:
+                    frame_num = int(frame_num_str)
+                    self.frame_times.append(frame_num / 30.0)  # Assume 30 FPS for timestamp
+                else:
+                    # Fallback if no number found, use index
+                    print(f"Warning: Could not parse frame number from {image_file}. Using index {i-1} for frame_time.")
+                    self.frame_times.append((i-1) / 30.0) # i is 1-based index from enumerate
+            except Exception as e:
+                print(f"Warning: Error parsing frame number from {image_file}: {e}. Using index {i-1} for frame_time.")
+                self.frame_times.append((i-1) / 30.0)
+
+            if i % 50 == 0 or i == len(image_files):
+                 print(f"Processed frame {i}/{len(image_files)}: {image_file}")
             
     def compute_cnn_similarity(self, features1, features2):
         """Compute cosine similarity between CNN features"""
@@ -148,7 +194,25 @@ class CNNLoopClosureDetector(RandomForestLoopClosureDetector):
                 if desc1 is None or desc2 is None:
                     continue
                     
-                matches = self.match_features(desc1, desc2)
+                # SIFT Feature Matching (knnMatch + Ratio Test)
+                matches = [] # Initialize to empty list
+                # Descriptors desc1 and desc2 are already checked for None earlier in this method.
+                # We also need to ensure they are not empty and are of type float32 for FLANN.
+                if desc1.shape[0] > 0 and desc2.shape[0] > 0:
+                    # Ensure descriptors are float32 (SIFT descriptors usually are, but good practice)
+                    d1_processed = desc1 if desc1.dtype == np.float32 else np.float32(desc1)
+                    d2_processed = desc2 if desc2.dtype == np.float32 else np.float32(desc2)
+
+                    raw_matches_list = self.matcher.knnMatch(d1_processed, d2_processed, k=2)
+                    
+                    for m_tuple in raw_matches_list:
+                        # knnMatch returns a list of k matches for each descriptor.
+                        # We need at least two matches (m and n) for the ratio test.
+                        if len(m_tuple) == 2:
+                            k_match1, k_match2 = m_tuple
+                            if k_match1.distance < 0.7 * k_match2.distance: # Lowe's Ratio test
+                                matches.append(k_match1)
+                # If descriptors are empty or no good matches found, 'matches' will remain an empty list.
                 print(f"\nFrame pair ({i+1}, {j+1}):")
                 print(f"Number of matches: {len(matches)}")
                 print(f"CNN similarity: {cnn_sim:.3f}")
@@ -201,7 +265,22 @@ class CNNLoopClosureDetector(RandomForestLoopClosureDetector):
                 print("Passed confidence threshold, checking geometric consistency...")
                 desc1 = self.frames[i]['descriptors']
                 desc2 = self.frames[j]['descriptors']
-                matches = self.match_features(desc1, desc2)
+                
+                # SIFT Feature Matching (knnMatch + Ratio Test) for geometric verification
+                matches = [] # Initialize to empty list
+                if desc1 is not None and desc2 is not None and desc1.shape[0] > 0 and desc2.shape[0] > 0:
+                    # Ensure descriptors are float32
+                    d1_processed = desc1 if desc1.dtype == np.float32 else np.float32(desc1)
+                    d2_processed = desc2 if desc2.dtype == np.float32 else np.float32(desc2)
+
+                    raw_matches_list = self.matcher.knnMatch(d1_processed, d2_processed, k=2)
+                    
+                    for m_tuple in raw_matches_list:
+                        if len(m_tuple) == 2:
+                            k_match1, k_match2 = m_tuple # Using k_match1, k_match2 to avoid 'n' conflict
+                            if k_match1.distance < 0.7 * k_match2.distance: # Lowe's Ratio test
+                                matches.append(k_match1)
+                # If descriptors are None, empty or no good matches found, 'matches' will remain an empty list.
                 
                 if len(matches) >= self.min_matches:
                     pts1 = np.float32([self.frames[i]['keypoints'][m.queryIdx].pt for m in matches])

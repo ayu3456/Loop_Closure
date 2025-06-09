@@ -276,28 +276,7 @@ class LoopClosureDetector:
         """Visualize loop closure between two frames"""
         frame1_path = os.path.join(self.image_dir, f"frame_{frame_idx1+1:03d}.jpg")
         frame2_path = os.path.join(self.image_dir, f"frame_{frame_idx2+1:03d}.jpg")
-                            
-                            # Get inlier ratio
-                            inlier_ratio = np.sum(mask) / len(matches)
-                            
-                            if inlier_ratio > self.min_inlier_ratio:
-                                # Visualize loop closure
-                                try:
-                                    self.visualize_loop_closure(i, j, matches, mask)
-                                except Exception as e:
-                                    print(f"Error in visualization: {e}")
-                                
-                                # Add to loop closures
-                                loop_closures.append((i, j, self.similarity_matrix[i, j]))
-                                print(f"Found loop closure between frames {i+1} and {j+1}")
-                                
-                                if len(loop_closures) >= 5:  # Limit to 5 loop closures for visualization
-                continue
-            
-            # Calculate similarity
-            similarity = self.calculate_similarity(i, j)
-            self.similarity_matrix[i, j] = similarity
-            self.similarity_matrix[j, i] = similarity
+        pass
     
     def detect_loop_closures(self):
         """Detect loop closures between frames"""
@@ -330,75 +309,92 @@ class LoopClosureDetector:
                     loop_closures.append((i, j, similarity))
         
         return loop_closures
+    
+def main():
+    detector = LoopClosureDetector()
 
-    # Find loop closures
-    loop_closures = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            similarity = self.similarity_matrix[i, j]
-            if similarity >= self.similarity_threshold:
-                loop_closures.append((i, j, similarity))
-    
-    # Perform geometric verification
-    verified_loop_closures = []
-    num_frames = detector.load_frames_from_directory(frames_dir)
-    if num_frames == 0:
-        print(f"Warning: Could not load any frames from {frames_dir}")
-        return
-    
-    # Detect loop closures
-    loop_closures = detector.detect_loop_closures()
-    
-    # Create 3D trajectory visualization with a unique filename
-    output_path = os.path.join(detector.output_dir, f'3d_trajectory_{video_file}.html')
-    
-    # Create 3D trajectory visualization
-    detector.create_3d_trajectory(loop_closures, output_path)
-    
-    print("\nLoop Closure Detection Summary:")
-    print(f"Total loop closures found: {len(loop_closures)}")
-    for i, j, similarity in loop_closures:
-        print(f"Loop closure between frames {i+1} and {j+1} (similarity: {similarity:.3f})")
-    
-    # Clear frames for next video
-    detector.frames = []
-    detector.descriptors = []
-    detector.similarity_matrix = None
-    detector.frame_times = []
-    detector.frame_positions = []
-    
-    print(f"\nFound {len(video_files)} videos to process:")
-    for video_file in video_files:
-        print(f"Processing video: {video_file}")
-        video_path = os.path.join(detector.video_dir, video_file)
+    # The following block is the original procedural code found in the global scope.
+    # It has been moved into this main() function.
+    # Variables like 'frames_dir', 'video_file', 'video_files' were used without prior definition.
+    # Calls to 'detector.extract_frames_from_video(video_path)' might fail if the method doesn't exist.
+    # For safety, most of this block is commented out. Review and uncomment/modify if this main function is to be used.
+
+    # print("--- Example: Processing a directory of frames ---")
+    # frames_dir = "path/to/your/frames_directory"  # TODO: Define this path
+    # video_file_for_output_name = "frames_dir_trajectory" # TODO: Define for output naming
+    # if os.path.exists(frames_dir):
+    #     num_frames = detector.load_frames_from_directory(frames_dir)
+    #     if num_frames == 0:
+    #         print(f"Warning: Could not load any frames from {frames_dir}")
+    #     else:
+    #         loop_closures = detector.detect_loop_closures()
+    #         output_path = os.path.join(detector.output_dir, f'3d_trajectory_{video_file_for_output_name}.html')
+    #         detector.create_3d_trajectory(loop_closures, output_path)
+    #         print("\nLoop Closure Detection Summary (from frames_dir):")
+    #         print(f"Total loop closures found: {len(loop_closures)}")
+    #         for i, j, similarity in loop_closures:
+    #             print(f"Loop closure between frames {i+1} and {j+1} (similarity: {similarity:.3f})")
+    #         # Clear detector state for next operation
+    #         detector.frames = []
+    #         detector.descriptors = []
+    #         detector.similarity_matrix = None
+    #         detector.frame_times = []
+    #         detector.frame_positions = []
+    # else:
+    #     print(f"Frames directory not found: {frames_dir}")
+
+    # print("\n--- Example: Processing video files ---")
+    # video_files_to_process = [] # TODO: Populate this list, e.g., os.listdir(detector.video_dir)
+    # if not hasattr(detector, 'video_dir') or not detector.video_dir:
+    #     print("Detector's video_dir is not set. Cannot list video files.")
+    # elif not os.path.exists(detector.video_dir):
+    #     print(f"Detector's video_dir does not exist: {detector.video_dir}")
+    # else:
+    #     try:
+    #         video_files_to_process = [f for f in os.listdir(detector.video_dir) if f.lower().endswith(('.mp4', '.avi', '.mov'))]
+    #     except Exception as e:
+    #         print(f"Error listing files from {detector.video_dir}: {e}")
+
+    # if not video_files_to_process:
+    #     print("No video files found or specified to process.")
+
+    # for video_file_item in video_files_to_process:
+    #     print(f"\nProcessing video: {video_file_item}")
+    #     video_path = os.path.join(detector.video_dir, video_file_item)
+
+    #     # Reset detector state for each video
+    #     detector.frames = []
+    #     detector.descriptors = []
+    #     detector.similarity_matrix = None
+    #     detector.frame_times = []
+    #     detector.frame_positions = []
+
+    #     # The 'extract_frames_from_video' method is not part of the LoopClosureDetector class.
+    #     # This logic would need an external function or a new method in the class.
+    #     # print(f"Attempting to extract frames from {video_path} (Note: 'extract_frames_from_video' method may not exist on detector)")
+    #     # num_frames_from_video = 0 # Placeholder
+    #     # # num_frames_from_video = detector.extract_frames_from_video(video_path) # This line would cause an error
+    #     # if num_frames_from_video == 0:
+    #     #     print(f"Warning: Could not extract frames from {video_path} or method is missing.")
+    #     #     continue
         
-        # Get full path to video
-        if not os.path.isabs(video_path):
-            video_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), video_file)
-        
-        # Extract frames from video
-        num_frames = detector.extract_frames_from_video(video_path)
-        if num_frames == 0:
-            print(f"Warning: Could not extract any frames from {video_path}")
-            continue
-        
-        # Detect loop closures
-        loop_closures = detector.detect_loop_closures()
-        
-        # Create 3D trajectory visualization
-        detector.create_3d_trajectory(loop_closures)
-        
-        print("\nLoop Closure Detection Summary:")
-        print(f"Total loop closures found: {len(loop_closures)}")
-        for i, j, similarity in loop_closures:
-            print(f"Loop closure between frames {i+1} and {j+1} (similarity: {similarity:.3f})")
-        
-        # Clear frames for next video
-        detector.frames = []
-        detector.descriptors = []
-        detector.similarity_matrix = None
-        detector.frame_times = []
-        detector.frame_positions = []
+    #     # Assuming frames are loaded by some means (e.g., if extract_frames_from_video populated self.frames)
+    #     if not detector.frames:
+    #        print(f"No frames loaded for video {video_file_item} after (attempted) extraction. Skipping loop detection.")
+    #        continue
+
+    #     loop_closures_for_video = detector.detect_loop_closures()
+    #     output_path_video = os.path.join(detector.output_dir, f'3d_trajectory_{os.path.splitext(video_file_item)[0]}.html')
+    #     detector.create_3d_trajectory(loop_closures_for_video, output_path_video)
+    #     print("\nLoop Closure Detection Summary (for video):")
+    #     print(f"Total loop closures found: {len(loop_closures_for_video)}")
+    #     for i, j, similarity in loop_closures_for_video:
+    #         print(f"Loop closure between frames {i+1} and {j+1} (similarity: {similarity:.3f})")
+
+    print("\nPlaceholder main function in loop_closure_detector.py executed.")
+    print("Original procedural code has been moved here and mostly commented out.")
+    print("Review and update this function if it's intended for specific standalone execution.")
+
 
 if __name__ == "__main__":
     main() 

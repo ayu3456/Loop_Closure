@@ -1,6 +1,8 @@
 import numpy as np
 import cv2
 import threading
+import os
+from cnn_loop_closure import CNNLoopClosureDetector # For CNN-based loop closure
 from typing import Optional, Dict, List, Tuple
 from tracking import Tracker
 
@@ -38,6 +40,14 @@ class ORBSlam3:
         self.min_keyframe_translation = 0.1  # meters
         self.last_keyframe_pose = np.eye(4)
         self.keyframe_counter = 0
+
+        # Loop Closure components and parameters
+        self.keyframe_image_dir = "orb_slam_keyframes"
+        os.makedirs(self.keyframe_image_dir, exist_ok=True)
+        # Ensure model/scaler paths are correct if cnn_loop_closure.py is not in CWD when this runs
+        self.cnn_loop_detector = CNNLoopClosureDetector(image_dir=self.keyframe_image_dir)
+        self.loop_closure_trigger_interval = 10 # Run loop closure check every N keyframes
+        self.keyframes_since_last_lc = 0
         
         # Threading locks
         self.map_update_lock = threading.Lock()
@@ -197,6 +207,46 @@ class ORBSlam3:
         # Update state
         self.last_keyframe_pose = pose.copy()
         self.keyframe_counter += 1
+        self.keyframes.append({
+            'id': self.keyframe_counter,
+            'frame': frame.copy(), # Storing frame for now, consider path if memory is an issue
+            'keypoints': keypoints,
+            'descriptors': descriptors,
+            'pose': pose.copy(),
+            'points_3d': points_3d
+        })
+
+        # Save keyframe image for CNN loop detector
+        image_path = os.path.join(self.keyframe_image_dir, f"keyframe_{self.keyframe_counter:06d}.png")
+        cv2.imwrite(image_path, frame)
+
+        self.keyframes_since_last_lc += 1
+
+        # Periodically run loop closure detection
+        if self.keyframes_since_last_lc >= self.loop_closure_trigger_interval and self.keyframe_counter > self.loop_closure_trigger_interval:
+            print(f"\n--- [ORB-SLAM3 System] Triggering Loop Closure Detection (Keyframe {self.keyframe_counter}) ---")
+            # This tells the detector to re-scan its image_dir and update internal features
+            self.cnn_loop_detector.process_frames()
+            
+            if len(self.cnn_loop_detector.frames) >= 2: # Need at least 2 frames for detection
+                detected_loops = self.cnn_loop_detector.detect_loop_closures_with_rf()
+                if detected_loops:
+                    print(f"--- [ORB-SLAM3 System] CNN Loop Detector Found Potential Loops: ---")
+                    for loop_info in detected_loops:
+                        # loop_info is (idx1, idx2, combined_conf, inlier_ratio)
+                        # These indices are for cnn_loop_detector's internal list. 
+                        # Mapping them back to ORBSlam3's keyframe IDs requires care if cnn_loop_detector doesn't process all frames or processes them out of order.
+                        # For now, assume cnn_loop_detector.frames[idx1]['id'] gives the filename like 'keyframe_00000X.png'
+                        kf_id1_str = self.cnn_loop_detector.frames[loop_info[0]].get('id', f'UnknownID_idx{loop_info[0]}')
+                        kf_id2_str = self.cnn_loop_detector.frames[loop_info[1]].get('id', f'UnknownID_idx{loop_info[1]}')
+                        print(f"    Loop between {kf_id1_str} and {kf_id2_str} | Confidence: {loop_info[2]:.3f}, Inlier Ratio: {loop_info[3]:.3f}")
+                    # TODO: Add actual loop correction mechanism (e.g., pose graph optimization)
+                else:
+                    print("--- [ORB-SLAM3 System] CNN Loop Detector: No loops found this cycle. ---")
+            else:
+                print("--- [ORB-SLAM3 System] CNN Loop Detector: Not enough processed frames to detect loops. ---")
+            self.keyframes_since_last_lc = 0
+            print("--- [ORB-SLAM3 System] Loop Closure Detection Cycle Complete ---\n")
 
     def shutdown(self):
         """

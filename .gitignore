@@ -39,6 +39,10 @@ ENV/
 
 # Project specific
 
-# Large data files
+# Example data and videos
+
+# Output directories
+output/
+orb_slam_keyframes/
 data/*.tgz
 data/*.zip
