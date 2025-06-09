@@ -9,32 +9,39 @@ A Python implementation of ORB-SLAM3 with real-time visualization. This project 
 - Scale-consistent motion estimation
 - Real-time 3D trajectory visualization
 - Support for video files and image sequences
-- Camera pose estimation with essential matrix 
-decomposition
+- Camera pose estimation with essential matrix decomposition
 - Interactive 3D visualization with camera frustum
+- CNN-based Loop Closure Detection (integrated into SLAM, also runnable standalone)
 
 ## Project Structure
 
 ```
-orbslam_in_python/
+Loop_Closure/                   # Project Root
 ├── config/
-│   └── camera_config.yaml    # Camera calibration parameters
-├── data/
-│   └── rgbd_dataset_freiburg1_xyz/  # Example dataset
+│   └── camera_config.yaml            # Camera calibration parameters
+├── data/                           # (Example dataset directory, if used)
+│   └── rgbd_dataset_freiburg1_xyz/
 ├── src/
-│   ├── system.py            # Main SLAM system
-│   ├── tracking.py          # Feature tracking and pose estimation
-│   ├── mapping.py           # Mapping module (basic implementation)
-│   └── run_slam.py          # Main script to run the system
-└── requirements.txt         # Python dependencies
+│   ├── system.py                     # Main SLAM system with integrated loop closure
+│   ├── tracking.py                   # Feature tracking and pose estimation
+│   ├── mapping.py                    # Mapping module (basic implementation)
+│   └── run_slam.py                   # Main script to run the SLAM system
+├── cnn_loop_closure.py               # CNN Loop Closure detection module
+├── run_cnn_loop_closure_on_video.py  # Script to run standalone CNN loop closure
+├── cnn_rf_loop_closure_model.joblib  # Pre-trained Random Forest model for loop closure
+├── cnn_rf_scaler.joblib              # Pre-trained scaler for loop closure features
+├── requirements.txt                  # Python dependencies
+├── .gitignore                        # Specifies intentionally untracked files
+├── orb_slam_keyframes/               # Directory for saved keyframes (auto-generated, in .gitignore)
+└── output/                           # Directory for script outputs (e.g., trajectories, auto-generated, in .gitignore)
 ```
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/orbslam_in_python.git
-cd orbslam_in_python
+git clone https://github.com/ayu3456/Loop_Closure.git
+cd Loop_Closure
 ```
 
 2. Create and activate a virtual environment (optional but recommended):
@@ -50,25 +57,43 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Running with Image Sequence
+### Running the Integrated ORB-SLAM3 System (with CNN Loop Closure)
 
+The main SLAM system now incorporates CNN-based loop closure detection, which runs periodically.
+
+#### Running with Image Sequence
 ```bash
 python src/run_slam.py --config config/camera_config.yaml --input path/to/image/sequence --viz_delay 0.05
 ```
 
-### Running with Video File
-
+#### Running with Video File
 ```bash
 python src/run_slam.py --config config/camera_config.yaml --input path/to/video.mp4 --viz_delay 0.05
 ```
 
-### Running with Webcam
-
+#### Running with Webcam
 ```bash
 python src/run_slam.py --config config/camera_config.yaml --input 0 --viz_delay 0.05
 ```
 
-### Command Line Arguments
+### Running Standalone CNN Loop Closure Detection
+
+You can also run the CNN loop closure detection module independently on a directory of frames or a video file. This is useful for testing the loop closure component or processing pre-recorded data.
+
+#### Using a Directory of Pre-extracted Frames:
+```bash
+python run_cnn_loop_closure_on_video.py --frames_dir path/to/your/frames_directory --output_dir path/to/output_results_directory
+```
+- Ensure frames are named sequentially (e.g., `frame_0001.png`, `frame_0002.jpg`, etc.).
+- The script will generate a 3D trajectory visualization (`cnn_loop_closure_3d_trajectory.html`) and other results in the specified output directory.
+
+#### Using a Video File:
+```bash
+python run_cnn_loop_closure_on_video.py --video_file path/to/your/video.mp4 --output_dir path/to/output_results_directory
+```
+- The script will first extract frames from the video into a subdirectory within the output directory.
+
+### Command Line Arguments for `src/run_slam.py`
 
 - `--config`: Path to camera configuration file (YAML)
 - `--input`: Path to input source (video file, image directory, or camera index)
@@ -99,10 +124,24 @@ The system provides two visualization windows:
 
 ## Dependencies
 
-- OpenCV (cv2)
-- NumPy
-- Matplotlib
-- PyYAML
+The project relies on several Python libraries. Key dependencies include:
+
+- OpenCV (`opencv-python`)
+- NumPy (`numpy`)
+- Matplotlib (`matplotlib`)
+- PyYAML (`PyYAML`)
+- PyTorch (`torch`) & Torchvision (`torchvision`) for CNN features
+- Scikit-learn (`scikit-learn`) for the Random Forest classifier
+- Joblib (`joblib`) for loading pre-trained models
+- Plotly (`plotly`) for interactive 3D visualizations
+- Pillow (`Pillow`) for image manipulation
+- Requests (`requests`)
+- TQDM (`tqdm`) for progress bars
+
+All dependencies are listed in `requirements.txt` and can be installed via:
+```bash
+pip install -r requirements.txt
+```
 
 ## Configuration
 
@@ -132,18 +171,19 @@ Camera:
 
 - Monocular-only implementation (no stereo or RGB-D support)
 - Basic mapping functionality
-- No loop closure
-- Scale drift may occur in long sequences
+- Loop closure detection is implemented and identifies potential loops, but full pose graph optimization and map correction based on these loops are not yet integrated.
+- Scale drift may occur in long sequences (inherent in monocular SLAM without loop closure correction or other scale-aware sensors).
 
 ## Contributing
 
 Feel free to open issues or submit pull requests for improvements. Some areas that could be enhanced:
 
-- Loop closure detection
+- Pose graph optimization and map correction using detected loop closures
+- Robust loop verification mechanisms
 - Local bundle adjustment
-- Keyframe management
+- Keyframe management strategies
 - Map point culling
-- Multi-threading support
+- Multi-threading support for performance improvement
 
 ## License
 
