@@ -138,6 +138,9 @@ The project relies on several Python libraries. Key dependencies include:
 - Requests (`requests`)
 - TQDM (`tqdm`) for progress bars
 
+<img width="1280" alt="Screenshot 2025-06-09 at 10 12 08 AM" src="https://github.com/user-attachments/assets/39d25d39-b668-43ba-8cc0-3f9bfd0ce406" />
+
+
 All dependencies are listed in `requirements.txt` and can be installed via:
 ```bash
 pip install -r requirements.txt
