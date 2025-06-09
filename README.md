@@ -121,6 +121,8 @@ The system provides two visualization windows:
    - Interactive 3D view (rotate, zoom)
   
 <img width="1280" alt="Screenshot 2025-05-20 at 8 13 28 PM" src="https://github.com/user-attachments/assets/0f15a04e-cbfe-4306-bd3c-f7d6d189e36c" />
+<img width="1280" alt="Screenshot 2025-06-09 at 10 12 08 AM" src="https://github.com/user-attachments/assets/39d25d39-b668-43ba-8cc0-3f9bfd0ce406" />
+
 
 ## Dependencies
 
@@ -138,7 +140,6 @@ The project relies on several Python libraries. Key dependencies include:
 - Requests (`requests`)
 - TQDM (`tqdm`) for progress bars
 
-<img width="1280" alt="Screenshot 2025-06-09 at 10 12 08 AM" src="https://github.com/user-attachments/assets/39d25d39-b668-43ba-8cc0-3f9bfd0ce406" />
 
 
 All dependencies are listed in `requirements.txt` and can be installed via:
